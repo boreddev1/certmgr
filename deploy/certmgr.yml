@@ -1,0 +1,42 @@
+# Cert-Manager: lokale Verwaltung von Client-Zertifikaten fuer das
+# mTLS-Gate der GUI-Services.
+#
+# Laeuft im podman-Netz "usenet"? Nein - bewusst NICHT. Der Dienst
+# bindet auf 127.0.0.1 im Host-Netz, damit weder das LAN noch das
+# podman-Netz ihn erreicht. Erreichbar ist er nur ueber
+#   - den Cloudflare-Tunnel (Onboarding :8103)
+#   - nginx auf :8443 im LAN (Admin :8104)
+#
+# Start: podman-compose -f ~/ai-stack/certmgr.yml up -d
+
+services:
+  certmgr:
+    build:
+      context: ./certmgr
+      dockerfile: Dockerfile
+    image: localhost/certmgr:1.0.0
+    container_name: certmgr
+    restart: unless-stopped
+    # Host-Networking: der Dienst bindet selbst auf 127.0.0.1. Damit
+    # braucht es kein Port-Mapping und der Port ist nicht im LAN sichtbar.
+    network_mode: host
+    environment:
+      CERTMGR_DATA: /data
+      CERTMGR_MASTER_KEY: /run/secrets/certmgr-master-key
+      CERTMGR_ADMIN_PASS: /run/secrets/certmgr-admin-pass
+      CERTMGR_API_TOKEN: /run/secrets/certmgr-api-token
+      CERTMGR_CF_TOKEN: /run/secrets/certmgr-cf-token
+      CERTMGR_ZONE_ID: "a5442d8946137e4d48e8020256b3786e"
+      CERTMGR_BASE_URL: "https://access.boreddev1.cc"
+      CERTMGR_PUBLIC_PORT: "8103"
+      CERTMGR_ADMIN_PORT: "8104"
+    volumes:
+      - ./certmgr/data:/data
+      - ./secrets:/run/secrets:ro
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8104/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

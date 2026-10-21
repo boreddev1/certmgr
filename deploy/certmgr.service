@@ -1,0 +1,15 @@
+[Unit]
+Description=Cert-Manager (Client-Zertifikate fuer das mTLS-Gate)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/ai-stack
+ExecStart=/home/ewen/.local/bin/podman-compose -f %h/ai-stack/certmgr.yml up -d
+ExecStop=/home/ewen/.local/bin/podman-compose -f %h/ai-stack/certmgr.yml down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cert-Manager</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+    --txt:#e6e9ef; --dim:#98a1b3; --accent:#7aa2f7; --ok:#7ddc9a;
+    --warn:#e6c07b; --bad:#e78a8a; --off:#5a6070;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:34px 20px 70px}
+  header{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:8px;
+         display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:26px;margin:0;font-weight:650;letter-spacing:-.01em}
+  .sub{color:var(--dim);font-size:14px}
+  .spacer{flex:1}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);
+     margin:34px 0 14px;font-weight:600;display:flex;align-items:center;gap:10px}
+  h2:after{content:"";flex:1;height:1px;background:var(--line)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:16px 18px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+  label{display:block;font-size:13px;color:var(--dim);margin-bottom:5px}
+  input,select,textarea{width:100%;padding:9px 11px;border-radius:7px;
+        border:1px solid var(--line);background:var(--panel2);color:var(--txt);
+        font-size:14px;font-family:inherit}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  .field{margin-bottom:13px}
+  button{padding:9px 15px;border:0;border-radius:7px;background:var(--accent);
+         color:#0f1115;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+  button:hover{filter:brightness(1.1)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.ghost{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
+  button.danger{background:#3a2027;color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
+     color:var(--dim);font-weight:600;padding:0 10px 9px;border-bottom:1px solid var(--line)}
+  td{padding:10px;border-bottom:1px solid rgba(255,255,255,.045);vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  code,.mono{font-family:var(--mono);font-size:12.5px;background:var(--panel2);
+             padding:2px 6px;border-radius:4px;color:#cfd6e4}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;
+        font-weight:600;letter-spacing:.02em}
+  .s-active{background:rgba(125,220,154,.13);color:var(--ok)}
+  .s-revoked{background:rgba(231,140,138,.13);color:var(--bad)}
+  .s-pending_revocation{background:rgba(230,192,123,.13);color:var(--warn)}
+  .s-manual{background:rgba(122,162,247,.13);color:var(--accent)}
+  .s-manual_revoked{background:rgba(230,192,123,.13);color:var(--warn)}
+  .muted{color:var(--dim);font-size:13px}
+  .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .note{border-left:2px solid var(--accent);background:rgba(122,162,247,.055);
+        padding:12px 15px;border-radius:0 8px 8px 0;font-size:14px;color:var(--dim);
+        margin-top:14px}
+  .note b{color:var(--txt)}
+  .note.bad{border-color:var(--bad);background:rgba(231,140,138,.055)}
+  .secret{display:flex;gap:8px;align-items:center;margin-top:9px}
+  .secret input{font-family:var(--mono)}
+  .copy{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+        padding:7px 11px;border-radius:6px;cursor:pointer;font-size:13px}
+  .toast{position:fixed;right:20px;bottom:20px;background:var(--panel);
+         border:1px solid var(--line);border-radius:9px;padding:13px 17px;
+         max-width:380px;display:none;z-index:50}
+  .toast.err{border-color:var(--bad);color:var(--bad)}
+  .toast.ok{border-color:var(--ok);color:var(--ok)}
+  .empty{color:var(--dim);padding:24px;text-align:center;font-size:14px}
+  details summary{cursor:pointer;color:var(--dim);font-size:13px}
+  textarea{min-height:110px;font-family:var(--mono);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Cert-Manager</h1>
+  <span class="sub" id="mode">…</span>
+  <span class="spacer"></span>
+  <button class="ghost" id="sync">Status abgleichen</button>
+  <button class="ghost" id="logout">Abmelden</button>
+</header>
+
+<h2>Neues Zertifikat</h2>
+<div class="card">
+  <div class="grid">
+    <div>
+      <div class="field">
+        <label for="device">Gerät</label>
+        <input id="device" placeholder="laptop-sven" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="note">Notiz (optional)</label>
+        <input id="note" placeholder="Wohnzimmer-Rechner" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="days">Gültigkeit (Tage)</label>
+        <input id="days" type="number" value="365" min="1" max="825">
+      </div>
+      <button id="create">Zertifikat erstellen</button>
+    </div>
+    <div id="result"></div>
+  </div>
+  <div class="note">
+    <b>Ablauf:</b> Erstellung → Passwort + Einmal-Link an die Person → Person
+    lädt das Zertifikat genau einmal herunter → Link ist tot. Der private
+    Schlüssel wird serverseitig gelöscht, sobald er abgeholt wurde.
+  </div>
+</div>
+
+<h2>Zertifikate</h2>
+<div class="card">
+  <table>
+    <thead><tr>
+      <th>Gerät</th><th>CN</th><th>Status</th><th>Gültig bis</th>
+      <th>Fingerprint</th><th>Abgeholt</th><th></th>
+    </tr></thead>
+    <tbody id="rows"><tr><td colspan="7" class="empty">lade…</td></tr></tbody>
+  </table>
+</div>
+
+<h2>Aktivität</h2>
+<div class="card">
+  <table>
+    <thead><tr><th>Zeit</th><th>Aktion</th><th>Gerät</th><th>Details</th><th>Quelle</th></tr></thead>
+    <tbody id="audit"><tr><td colspan="5" class="empty">lade…</td></tr></tbody>
+  </table>
+</div>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function toast(msg, kind){
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (kind || '');
+  t.style.display = 'block';
+  setTimeout(()=>{t.style.display='none';}, 4200);
+}
+
+async function api(path, body, method){
+  const opt = {method: method || (body ? 'POST' : 'GET'),
+               headers:{'Content-Type':'application/json'}};
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(path, opt);
+  if (r.status === 401){ location.href='/'; throw new Error('nicht angemeldet'); }
+  const ct = r.headers.get('Content-Type') || '';
+  const data = ct.includes('json') ? await r.json() : await r.text();
+  if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+  return data;
+}
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function statusPill(s){
+  const cls = 's-' + String(s || '').replace(/[^a-z_]/gi,'');
+  return `<span class="pill ${cls}">${esc(s)}</span>`;
+}
+
+function fmtDate(s){
+  if (!s) return '–';
+  const d = new Date(s);
+  return isNaN(d) ? esc(s) : d.toLocaleString('de-DE');
+}
+
+async function load(){
+  const st = await api('/api/status');
+  $('mode').textContent = st.cf_mode === 'api'
+    ? 'Cloudflare-API aktiv · Zertifikate: ' + st.certs
+    : 'manueller Modus (kein CF-Token) · Zertifikate: ' + st.certs;
+
+  const {certs} = await api('/api/certs');
+  const rows = $('rows');
+  if (!certs.length){
+    rows.innerHTML = '<tr><td colspan="7" class="empty">noch keine Zertifikate</td></tr>';
+  } else {
+    rows.innerHTML = certs.map(c => `
+      <tr>
+        <td><b>${esc(c.device)}</b>${c.note ? '<br><span class="muted">'+esc(c.note)+'</span>' : ''}</td>
+        <td><code>${esc(c.common_name)}</code></td>
+        <td>${statusPill(c.status)}</td>
+        <td class="muted">${fmtDate(c.expires_on)}</td>
+        <td><code>${esc((c.fingerprint||'').slice(0,16))}</code></td>
+        <td class="muted">${c.downloaded_at ? fmtDate(c.downloaded_at) : '–'}</td>
+        <td class="row">
+          ${c.status === 'manual' ? `<button class="ghost" data-attach="${esc(c.id)}">Zert. eintragen</button>` : ''}
+          ${c.status === 'active' ? `<button class="danger" data-revoke="${esc(c.id)}">Widerrufen</button>` : ''}
+          ${(c.status === 'revoked' || c.status === 'manual_revoked') ? `<button class="ghost" data-react="${esc(c.id)}">Reaktivieren</button>` : ''}
+        </td>
+      </tr>`).join('');
+  }
+
+  const {audit} = await api('/api/audit');
+  $('audit').innerHTML = audit.slice(0,40).map(a => `
+    <tr><td class="muted">${fmtDate(new Date(a.ts*1000).toISOString())}</td>
+    <td><code>${esc(a.action)}</code></td><td>${esc(a.device)}</td>
+    <td class="muted">${esc(a.detail)}</td><td class="muted">${esc(a.remote)}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="empty">keine Einträge</td></tr>';
+}
+
+$('create').onclick = async () => {
+  const device = $('device').value.trim();
+  if (!device){ toast('Gerät fehlt', 'err'); return; }
+  $('create').disabled = true;
+  try {
+    const r = await api('/api/create', {
+      device, note: $('note').value.trim(), validity_days: parseInt($('days').value,10)
+    });
+    $('result').innerHTML = `
+      <div class="note">
+        <b>Erstellt: ${esc(r.device)}</b> (${esc(r.status)})<br><br>
+        <b>Passwort</b><br>
+        <div class="secret"><input readonly value="${esc(r.password)}"><button class="copy" data-copy="${esc(r.password)}">kopieren</button></div>
+        <br><b>Einmal-Link</b><br>
+        <div class="secret"><input readonly value="${esc(r.link)}"><button class="copy" data-copy="${esc(r.link)}">kopieren</button></div>
+        <br><span class="muted">Link gültig bis 24 h nach Erstellung.</span>
+      </div>`;
+    $('device').value=''; $('note').value='';
+    toast('Zertifikat erstellt', 'ok');
+    load();
+  } catch(e){ toast(e.message, 'err'); }
+  $('create').disabled = false;
+};
+
+document.addEventListener('click', async e => {
+  const copy = e.target.dataset.copy;
+  if (copy){
+    navigator.clipboard.writeText(copy);
+    toast('kopiert', 'ok');
+    return;
+  }
+  const rev = e.target.dataset.revoke;
+  if (rev){
+    if (!confirm('Dieses Zertifikat wirklich widerrufen? Der Zugriff endet dann.')) return;
+    try{ await api('/api/revoke', {id:rev}); toast('widerrufen', 'ok'); load(); }
+    catch(err){ toast(err.message, 'err'); }
+    return;
+  }
+  const rea = e.target.dataset.react;
+  if (rea){
+    try{ await api('/api/reactivate', {id:rea}); toast('reaktiviert', 'ok'); load(); }
+    catch(err){ toast(err.message, 'err'); }
+    return;
+  }
+  const att = e.target.dataset.attach;
+  if (att){
+    const pem = prompt('Signiertes Zertifikat (PEM) einfügen:');
+    if (!pem) return;
+    try{ await api('/api/attach', {id:att, certificate:pem}); toast('eingetragen', 'ok'); load(); }
+    catch(err){ toast(err.message, 'err'); }
+  }
+});
+
+$('sync').onclick = async () => {
+  try{ const r = await api('/api/sync', {}); toast(`${r.changed} Zertifikat(e) aktualisiert`, 'ok'); load(); }
+  catch(e){ toast(e.message, 'err'); }
+};
+
+$('logout').onclick = async () => {
+  await api('/api/logout', {});
+  location.href='/';
+};
+
+load().catch(e => toast(e.message, 'err'));
+</script>
+</body>
+</html>
