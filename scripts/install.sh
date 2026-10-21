@@ -27,7 +27,11 @@ rm -rf "$STACK/certmgr/certmgr"
 cp -r "$REPO/certmgr" "$STACK/certmgr/certmgr"
 cp "$REPO/deploy/Dockerfile" "$STACK/certmgr/Dockerfile"
 cp "$REPO/deploy/certmgr.yml" "$STACK/certmgr.yml"
+# Das Datenverzeichnis enthaelt die Registry mit den verschluesselten
+# privaten Schluesseln und den Passwort-Hashes. Es darf fuer keinen
+# anderen lokalen User lesbar sein - 0700 auf dem Verzeichnis.
 mkdir -p "$STACK/certmgr/data"
+chmod 700 "$STACK/certmgr/data"
 
 # -------------------------------------------------------------- Secrets
 say "Secrets pruefen"

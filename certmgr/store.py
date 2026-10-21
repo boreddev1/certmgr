@@ -74,6 +74,25 @@ class Store:
     def _init_schema(self):
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+        self._check_permissions()
+
+    def _check_permissions(self):
+        """Die Registry enthaelt die verschluesselten privaten Schluessel
+        und die Passwort-Hashes.
+
+        Sie darf fuer keinen anderen lokalen User lesbar sein. Der
+        Container laeuft im rootless-podman als UID des Host-Users, die
+        Datei gehoert also auch ihm - die Rechte werden beim Anlegen
+        gesetzt.
+        """
+        for path in (self.path, self.path + "-wal", self.path + "-shm"):
+            if not os.path.exists(path):
+                continue
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                # read-only-Mount: die Rechte setzt das Install-Skript.
+                pass
 
     # ---------------------------------------------------------------- CRUD
 
