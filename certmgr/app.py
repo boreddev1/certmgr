@@ -53,7 +53,10 @@ class AdminAuth:
         self.password_hash = ca.hash_password(password)
         self.secret = secret or secrets.token_bytes(32)
         self._revoked = set()
-        self._lock = threading.Lock()
+        # RLock statt Lock: _prune_revoked() wird auch aus revoke_session()
+        # heraus gerufen, das den Lock selbst haelt. Ein normales Lock
+        # wuerde dort deadlocken (es ist nicht reentrant).
+        self._lock = threading.RLock()
 
     def check_password(self, password):
         return ca.verify_password(password, self.password_hash)
@@ -70,13 +73,20 @@ class AdminAuth:
         payload, sig = token.rsplit(".", 1)
         if not secrets.compare_digest(_sign(self.secret, payload), sig):
             return False
+        try:
+            expired = int(payload) <= time.time()
+        except ValueError:
+            return False
+        if expired:
+            return False
         with self._lock:
             if token in self._revoked:
                 return False
-        try:
-            return int(payload) > time.time()
-        except ValueError:
-            return False
+        # Gelegentlich auffraeumen, damit die Sperrliste nicht waechst.
+        # WICHTIG: nicht innerhalb des Lock aufrufen - _prune_revoked
+        # nimmt ihn selbst und ein threading.Lock ist nicht reentrant.
+        self._prune_revoked()
+        return True
 
     def revoke_session(self, token):
         """Session serverseitig sperren (Logout)."""
@@ -84,9 +94,18 @@ class AdminAuth:
             return
         with self._lock:
             self._revoked.add(token)
-            # Alte Eintraege entfernen, damit die Liste nicht wächst.
-            # Abgelaufene Sessions sind ohnehin nutzlos.
-            now = int(time.time())
+            self._prune_revoked()
+
+    def _prune_revoked(self):
+        """Abgelaufene Eintraege aus der Sperrliste entfernen.
+
+        Wird bei jedem Logout und bei jeder Pruefung aufgerufen, damit
+        die Liste nicht unbegrenzt waechst, auch wenn sich niemand
+        abmeldet. Eine abgelaufene Session ist ohnehin wertlos - die
+        Pruefung in check_session lehnt sie schon ab.
+        """
+        now = int(time.time())
+        with self._lock:
             for old in list(self._revoked):
                 try:
                     if int(old.split(".")[0]) < now:
@@ -331,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
         password = str(data.get("password", ""))
 
-        if not self.manager.check_client(remote):
+        if not self.manager.check_client(remote, bucket="onboard"):
             self.manager.store.audit(
                 "rate-limited", detail=f"{remote}", remote=remote
             )
