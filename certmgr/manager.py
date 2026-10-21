@@ -32,6 +32,13 @@ STATUS_MANUAL_REVOKED = "manual_revoked"  # lokal widerrufen, CF noch nicht
 # Zertifikate duerfen maximal so lange gueltig sein.
 MAX_VALIDITY_DAYS = 825  # Browser-/OS-Grenze,-public-CA-Maximum
 
+# Eingabegrenzen. Der Common Name landet im X.509-Subject und ist
+# dort auf 64 Zeichen begrenzt. Laengere Namen wuerden eine ungefaengliche
+# Exception in der Kryptografie-Bibliothek ausloesen.
+MAX_CN_LEN = 64
+MAX_DEVICE_LEN = 64
+MAX_NOTE_LEN = 500
+
 
 class NotSignedError(Exception):
     """Das Zertifikat existiert, ist aber noch nicht von Cloudflare signiert.
@@ -71,12 +78,32 @@ class CertManager:
         device = (device or "").strip()
         if not device:
             raise ValueError("device fehlt")
+        if len(device) > MAX_DEVICE_LEN:
+            raise ValueError(
+                f"device darf hoechstens {MAX_DEVICE_LEN} Zeichen haben "
+                f"(hat {len(device)})"
+            )
+        note = (note or "").strip()
+        if len(note) > MAX_NOTE_LEN:
+            raise ValueError(
+                f"note darf hoechstens {MAX_NOTE_LEN} Zeichen haben "
+                f"(hat {len(note)})"
+            )
         if not 1 <= int(validity_days) <= MAX_VALIDITY_DAYS:
             raise ValueError(
                 f"validity_days muss zwischen 1 und {MAX_VALIDITY_DAYS} liegen"
             )
 
         cn = (common_name or device).strip()
+        # Der CN landet im X.509-Subject. Die Standard-libtol toleriert
+        # hoechstens 64 Zeichen - alles andere fuehrt zu einer
+        # ungefaenglichen Exception. Deshalb hier pruefen und eine
+        # klare Meldung geben.
+        if not 1 <= len(cn) <= MAX_CN_LEN:
+            raise ValueError(
+                f"der Common Name muss zwischen 1 und {MAX_CN_LEN} Zeichen "
+                f"haben (hat {len(cn)})"
+            )
         key = ca.generate_key()
         key_pem = ca.key_to_pem(key)
         csr_pem = ca.build_csr(key, cn)

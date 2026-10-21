@@ -275,6 +275,20 @@ def main():
     except ValueError:
         check("Leeres Device abgelehnt", True)
 
+    print("\n[12b] Eingabegrenzen")
+    try:
+        mgr.create(device="A" * 5000, validity_days=30)
+        check("Ueberlanges Device abgelehnt", False)
+    except ValueError as e:
+        check("Ueberlanges Device abgelehnt", "64" in str(e), str(e)[:60])
+    try:
+        mgr.create(device="x", note="N" * 100000, validity_days=30)
+        check("Ueberlange Note abgelehnt", False)
+    except ValueError as e:
+        check("Ueberlange Note abgelehnt", "500" in str(e), str(e)[:60])
+    r_ok = mgr.create(device="B" * 64, validity_days=30)
+    check("64-Zeichen-Device akzeptiert", len(r_ok["common_name"]) == 64)
+
     print("\n[13] Ungueltige Gueltigkeit abgelehnt")
     try:
         mgr.create(device="x", validity_days=9999)
