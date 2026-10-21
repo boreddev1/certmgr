@@ -26,6 +26,12 @@ MTLS_HOST = "ki.boreddev1.cc"
 
 # Pfade, die die Edge NICHT durchlassen duerfte. Sie liegen absichtlich
 # ausserhalb von /onboard/.
+#
+# Erwartet wird 403 (WAF blockt) ODER 404 (der certmgr selbst lehnt
+# alles ausser /onboard/ ab). Beides ist in Ordnung - 404 ist sogar
+# besser, weil die Absicherung dann nicht allein von der WAF-Regel
+# abhaengt. 200 waere das Problem: dann waere der Admin-Port
+# durchgelassen.
 FORBIDDEN_PATHS = [
     "/api/certs",
     "/api/status",
@@ -33,6 +39,9 @@ FORBIDDEN_PATHS = [
     "/api/create",
     "/",
 ]
+
+# Werte, die auf ein Durchkommen hindeuten.
+BAD_CODES = (200, 201, 204, 301, 302)
 
 # Pfade, die funktionieren MUESSEN.
 EXPECTED_OK = [
@@ -52,6 +61,45 @@ def probe(url, timeout=15):
         return None
 
 
+def client_cert_requested(host, timeout=20):
+    """Fragt die Edge im TLS-Handshake nach einem Client-Zertifikat.
+
+    Am zuverlaessigsten ist der Handshake selbst: fordert der Server
+    ein Zertifikat an, schickt er eine CertificateRequest-Nachricht.
+    Das erkennt man an "Acceptable client certificate CA names" in der
+    Ausgabe von openssl s_client.
+
+    Wichtig: das prueft die mTLS-Hostname-Zuordnung, nicht die
+    WAF-Regel. Eine fehlende WAF-Regel faellt hier nicht auf - dafuer
+    ist der HTTP-Test zustaendig.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            [
+                "openssl", "s_client",
+                "-connect", f"{host}:443",
+                "-servername", host,
+                "-tls1_2",
+            ],
+            input="",
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        ).stderr
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+    if "Acceptable client certificate CA names" in out:
+        return True
+    # Manche TLS-Stacken zeigen statt der CA-Namen den Hinweis
+    # "No client certificate CA names sent".
+    if "No client certificate CA names sent" in out:
+        return False
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--portal", action="store_true",
@@ -64,12 +112,12 @@ def main():
     for path in FORBIDDEN_PATHS:
         url = f"https://{PORTAL_HOST}{path}"
         code = probe(url)
-        ok = code in (403, 404, 405, 501)
+        ok = code not in BAD_CODES and code is not None
         print(f"  {path:32} -> HTTP {code}  {'ok' if ok else 'DURCHGELASSEN!'}")
         if not ok:
             problems.append(
-                f"{url} lieferte HTTP {code} statt 403 - die WAF-Regel "
-                f"fehlt oder greift nicht"
+                f"{url} lieferte HTTP {code} - der Pfad ist erreichbar. "
+                f"Die WAF-Regel und/oder die certmgr-Absicherung fehlen."
             )
 
     if args.portal:
@@ -86,11 +134,23 @@ def main():
     print("\n== mTLS-Gate: ki.boreddev1.cc ohne Zertifikat ==")
     code = probe(f"https://{MTLS_HOST}/")
     ok = code == 403
-    print(f"  ohne Client-Zertifikat -> HTTP {code}  {'ok' if ok else 'DURCHGELASSEN!'}")
+    print(f"  ohne Client-Zertifikat -> HTTP {code}  {'ok' if ok else 'NICHT BLOCKIERT!'}")
     if not ok:
         problems.append(
             f"https://{MTLS_HOST}/ lieferte HTTP {code} statt 403 - die "
             f"mTLS-WAF-Regel fehlt oder greift nicht"
+        )
+
+    print("\n== mTLS-Gate: fordert die Edge ueberhaupt ein Zertifikat an? ==")
+    asked = client_cert_requested(MTLS_HOST)
+    print(
+        f"  CertificateRequest im TLS-Handshake: "
+        f"{'ja' if asked else 'NEIN'}"
+    )
+    if not asked:
+        problems.append(
+            f"Die Edge fragt bei {MTLS_HOST} kein Client-Zertifikat ab. "
+            f"Die mTLS-Hostname-Zuordnung fehlt - das Gate ist nicht aktiv."
         )
 
     print()
