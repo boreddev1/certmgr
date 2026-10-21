@@ -145,12 +145,44 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _client_ip(self):
-        # cloudflared setzt CF-Connecting-IP; direkt im LAN gibt es das
-        # Header nicht, dann zaehlt die Socket-Adresse.
+        """Die IP des Clients fuer das Rate-Limit.
+
+        Der Header CF-Connecting-IP wird von cloudflared gesetzt. Er
+        darf aber NICHT blind vertraut werden: jeder Client kann den
+        Header selbst mitsenden. Sonst laesst sich das Rate-Limit
+        umgehen, indem man bei jedem Versuch eine andere IP vorgibt.
+
+        Vertraut wird der Header deshalb nur, wenn die Anfrage
+        nachweislich ueber den Tunnel kam. cloudflared stellt genau
+        zwei Dinge bere, die ein direkter Client nicht faelschen kann:
+
+          - die Verbindung kommt von 127.0.0.1 (der Tunnel laeuft auf
+            demselben Host)
+          - der Header CF-Ray ist gesetzt (wird von der Edge erzeugt
+            und ist keine vom Client steuerbare Groesse)
+
+        Andernfalls zaehlt die Socket-Adresse. Die ist nicht
+        spoofbar - und wer direkt auf 127.0.0.1 zugreift, ist ohnehin
+        schon auf dem Host.
+        """
+        peer = self.client_address[0]
         cf_ip = self.headers.get("CF-Connecting-IP")
-        if cf_ip:
-            return cf_ip
-        return self.client_address[0]
+
+        if cf_ip and self._from_tunnel():
+            return cf_ip.strip()
+
+        return peer
+
+    def _from_tunnel(self):
+        """Kam die Anfrage ueber den Cloudflare-Tunnel?
+
+        Zwei Bedingungen muessen zutreffen: die Verbindung kommt vom
+        Loopback (cloudflared laeuft hier) und der CF-Ray-Header ist
+        gesetzt (Edge-Kennung).
+        """
+        if self.client_address[0] not in ("127.0.0.1", "::1"):
+            return False
+        return bool(self.headers.get("CF-Ray"))
 
     def _static(self, name):
         path = os.path.join(STATIC, name)

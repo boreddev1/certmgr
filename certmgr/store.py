@@ -129,6 +129,40 @@ class Store:
                 (time.time(), cert_id),
             )
 
+    def claim_for_delivery(self, cert_id, token_hash):
+        """Atomar den Download-Anspruch beanspruchen.
+
+        Das ist der Kern gegen den Race: zwei parallele Abholversuche
+        duerfen nicht beide den privaten Schluessel bekommen. Der
+        Anspruch wird deshalb per bedingtem UPDATE in EINER Transaktion
+        gewonnen - SQLite serialisiert die Schreibzugriffe, und die
+        WHERE-Bedingung sorgt dafuer, dass nur der erste Gewinner
+        True zurueckbekommt.
+
+        Geprueft wird in einem Rutsch:
+          - der Token gehoert zu diesem Zertifikat
+          - der Download wurde noch nicht beansprucht
+          - der Link ist nicht abgelaufen
+          - der private Schluessel ist noch da
+
+        Rueckgabe: True, wenn dieser Aufrufer der einzige Gewinner ist.
+        """
+        now = time.time()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE certs
+                   SET downloaded_at=?, key_blob=NULL, key_deleted=1, updated_at=?
+                 WHERE id=?
+                   AND token_hash=?
+                   AND (downloaded_at IS NULL OR downloaded_at=0)
+                   AND token_expires > ?
+                   AND key_blob IS NOT NULL
+                """,
+                (now, now, cert_id, token_hash, now),
+            )
+            return cur.rowcount == 1
+
     # -------------------------------------------------------------- Audit
 
     def audit(self, action, device="", detail="", remote=""):

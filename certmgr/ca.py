@@ -87,6 +87,25 @@ def key_fingerprint(key):
 # ------------------------------------------------------- Verschluesselung
 
 
+def _check_permissions(path):
+    """Prueft, dass die Secret-Datei nicht zu offen ist.
+
+    Der Master-Key schuetzt alle privaten Schluessel. Ist die Datei
+    fuer andere lokale User lesbar, koennte jeder von ihnen die
+    Schluessel aller Zertifikate entschluesseln. Deshalb: Gruppe und
+    Others duerfen nichts lesen.
+    """
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except OSError:
+        return
+    if mode & 0o077:
+        raise ValueError(
+            f"Master-Key-Datei hat zu weite Rechte ({oct(mode)[2:]}). "
+            f"Erwartet: 600. Korrigiere mit: chmod 600 {path}"
+        )
+
+
 def load_master_key(path):
     """Master-Key aus Datei. 32 Byte, hex oder base64.
 
@@ -121,6 +140,11 @@ def load_master_key(path):
 
     for kind, key in candidates:
         if len(key) == KEY_LEN:
+            # Rechte zuerst pruefen, dann korrigieren. Sonst wuerde
+            # das chmod die Warnung wieder verstecken - und der
+            # Dienst laeuft auf einem read-only-Mount, auf dem das
+            # chmod ohnehin fehlschlaegt.
+            _check_permissions(path)
             # Der Mount ist read-only - chmod schlaegt dann fehl. Die
             # Rechte setzt das Installationsskript auf dem Host.
             try:

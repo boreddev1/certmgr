@@ -233,6 +233,12 @@ class CertManager:
         Gibt (bundle_bytes, device) zurueck oder wirft ValueError mit
         verstaendlicher Meldung. Bei Erfolg wird der private Schluessel
         serverseitig geloescht - ab dann gibt es kein zweites Mal.
+
+        Wichtig: die Pruefung "bereits benutzt" und das Loeschen des
+        Schluessels passieren in EINEM atomaren Schritt (claim_for_delivery).
+        Sonst koennten zwei parallele Abholversuche beide den privaten
+        Schluessel bekommen - der Server wuerde das Schluesselmaterial
+        zweimal herausgeben.
         """
         token_hash = ca.hash_token(token)
         row = self.store.get_by_token_hash(token_hash)
@@ -256,12 +262,20 @@ class CertManager:
         if not row.get("key_blob"):
             raise ValueError("Der private Schluessel ist nicht mehr vorhanden")
 
+        # Atomar beanspruchen. Nur der Gewinner kommt hier durch - und
+        # verliert den Key im selben Moment, in dem er ihn abholt.
+        if not self.store.claim_for_delivery(row["id"], token_hash):
+            self.store.audit(
+                "deliver-race", device=row["device"], detail=row["id"], remote=remote
+            )
+            raise ValueError("Dieser Link wurde bereits benutzt")
+
+        # Der Key ist jetzt aus der DB entfernt. Er existiert nur noch
+        # in diesem Speicherbereich - und wird gleich an den Client
+        # ausgeliefert.
         key_pem = ca.decrypt_key(self.master_key, row["key_blob"])
         bundle = ca.build_bundle_zip(key_pem, row["certificate"], password)
 
-        # Schluessel vernichten. Ab jetzt existiert er nur noch beim Client.
-        self.store.delete_key_blob(row["id"])
-        self.store.update_cert(row["id"], downloaded_at=time.time())
         self.store.audit(
             "deliver", device=row["device"], detail=row["id"], remote=remote
         )

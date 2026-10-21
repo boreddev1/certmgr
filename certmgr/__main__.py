@@ -75,13 +75,20 @@ def main():
     db_path = os.path.join(data_dir, "registry.sqlite")
 
     master_key_path = os.environ.get("CERTMGR_MASTER_KEY", "")
-    master_key = _read_secret(master_key_path)
-    if not master_key:
+    if not master_key_path:
         raise SystemExit("[certmgr] CERTMGR_MASTER_KEY fehlt")
 
     from . import ca
 
-    master = ca.load_master_key(master_key_path)
+    # Der Master-Key wird genau einmal gelesen und nur als Bytes
+    # gehalten. load_master_key prueft dabei auch die Dateirechte -
+    # eine zu offene Datei waere ein Fundus fuer jeden lokalen User.
+    try:
+        master = ca.load_master_key(master_key_path)
+    except ValueError as e:
+        raise SystemExit(f"[certmgr] Master-Key unbrauchbar: {e}")
+    except OSError as e:
+        raise SystemExit(f"[certmgr] Master-Key nicht lesbar: {e}")
 
     admin_pass = _read_secret(os.environ.get("CERTMGR_ADMIN_PASS", ""))
     if not admin_pass:

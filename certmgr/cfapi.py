@@ -17,10 +17,33 @@ Ein 403 von Cloudflare ist kein Grund, den Dienst anzuhalten - der
 manuelle Weg funktioniert ohne jeden Token.
 """
 import json
+import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 CF_API = "https://api.cloudflare.com/client/v4"
+
+# Erlaubte Zeichen fuer eine Zertifikats-ID. Cloudflare nutzt UUIDs
+# (36 Zeichen). Alles andere wird abgelehnt - sonst koennte ein
+# Angreifer mit ".." im Pfad einen ganz anderen API-Endpunkt treffen
+# (Path-Traversal in der URL).
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _check_id(value, what="ID"):
+    """Prueft eine ID, bevor sie in einen URL-Pfad kommt."""
+    v = str(value or "")
+    if not _ID_RE.match(v):
+        raise CFError(
+            f"Ungueltige {what}: nur Buchstaben, Ziffern, '-' und '_' "
+            f"erlaubt (max. 64 Zeichen)"
+        )
+    return v
+
+
+def _check_zone(zone_id):
+    return _check_id(zone_id, "Zone-ID")
 
 
 class CFError(Exception):
@@ -35,7 +58,7 @@ class CFError(Exception):
 class CloudflareClient:
     def __init__(self, token=None, zone_id=None, timeout=30):
         self.token = token
-        self.zone_id = zone_id
+        self.zone_id = _check_zone(zone_id) if zone_id else None
         self.timeout = timeout
 
     @property
@@ -107,15 +130,18 @@ class CloudflareClient:
         return self._request("GET", f"/zones/{self.zone_id}/client_certificates")
 
     def get_client_certificate(self, cert_id):
+        cert_id = _check_id(cert_id, "Zertifikats-ID")
         return self._request("GET", f"/zones/{self.zone_id}/client_certificates/{cert_id}")
 
     def revoke_client_certificate(self, cert_id):
         """Widerruf. Cloudflare verarbeitet das asynchron."""
+        cert_id = _check_id(cert_id, "Zertifikats-ID")
         return self._request(
             "DELETE", f"/zones/{self.zone_id}/client_certificates/{cert_id}"
         )
 
     def reactivate_client_certificate(self, cert_id):
+        cert_id = _check_id(cert_id, "Zertifikats-ID")
         return self._request(
             "PATCH", f"/zones/{self.zone_id}/client_certificates/{cert_id}", {}
         )
