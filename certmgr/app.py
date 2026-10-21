@@ -310,9 +310,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self._login_page())
             return self._send(200, self._admin_page())
 
-        if path == "/static/app.js":
-            return self._static("app.js")
-
         return self._send(404, self._page("Nicht gefunden", "<p>404</p>"))
 
     # ----------------------------------------------------------- POST-Routen
@@ -394,10 +391,27 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
 
         if path == "/api/login":
+            # Eigene Bremse fuer den Admin-Login. scrypt allein bremst
+            # nicht - ein Versuch kostet nur ~50 ms, das wuerde im LAN
+            # rund 1700 Versuche pro Minute erlauben. Der Admin-Port ist
+            # zwar nur ueber nginx im LAN erreichbar, aber ein
+            # LAN-Angreifer soll das Passwort nicht raten koennen.
+            if not self.manager.check_client(remote, bucket="login", limit=8):
+                self.manager.store.audit(
+                    "login-rate-limited", remote=remote
+                )
+                return self._json(
+                    429,
+                    {"error": "Zu viele Fehlversuche. Bitte in 15 Minuten "
+                              "erneut versuchen."},
+                )
             pw = str(data.get("password", ""))
             if not self.auth.check_password(pw):
                 self.manager.store.audit("login-failed", remote=remote)
                 return self._json(401, {"error": "falsches Passwort"})
+            # Erfolgreicher Login: die Bremse zuruecksetzen, sonst
+            # sperrt ein Nutzer sich selbst aus.
+            self.manager.clear_rate_limit(remote, bucket="login")
             self.manager.store.audit("login", remote=remote)
             cookie = (
                 f"{SESSION_COOKIE}={self.auth.make_session()}; Path=/; "

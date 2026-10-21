@@ -365,21 +365,23 @@ class CertManager:
 
     # -------------------------------------------------------- Zugriffslogik
 
-    def check_client(self, remote_ip):
+    def check_client(self, remote_ip, bucket="onboard", limit=12, window=15 * 60):
         """Prueft die Quell-IP gegen die Rate-Limit-Liste.
 
         Onboarding-Port ist oeffentlich erreichbar. Ohne Bremse koennte
         jemand das Passwort raten. Der Free-Plan erlaubt keine
         Rate-Limit-Regel mit Host-Filter, also passiert das hier.
+
+        Der bucket-Parameter trennt die Bremse des Onboarding-Port von
+        der des Admin-Login. Sonst koennte ein Angreifer durch
+        Fehlversuche auf dem Onboarding-Port den Login blockieren.
         """
         try:
             ip = ipaddress.ip_address(remote_ip)
         except ValueError:
             return True
-        key = str(ip)
+        key = f"{bucket}:{ip}"
         now = time.time()
-        window = 15 * 60
-        limit = 12
         with self._rate_lock:
             hits = [t for t in self._rate.get(key, []) if now - t < window]
             if len(hits) >= limit:
@@ -393,3 +395,16 @@ class CertManager:
                     if not [t for t in self._rate[k] if now - t < window]:
                         del self._rate[k]
         return True
+
+    def clear_rate_limit(self, remote_ip, bucket="onboard"):
+        """Setzt die Bremse zurueck - nach einem erfolgreichen Login.
+
+        Sonst wuerde ein Nutzer, der sich dreimal vertippt hat, erst
+        nach 15 Minuten wieder reinkommen.
+        """
+        try:
+            ip = ipaddress.ip_address(remote_ip)
+        except ValueError:
+            return
+        with self._rate_lock:
+            self._rate.pop(f"{bucket}:{ip}", None)
