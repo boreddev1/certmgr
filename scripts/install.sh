@@ -93,37 +93,59 @@ systemctl --user enable certmgr.service >/dev/null 2>&1 || true
 # --------------------------------------------------------------- nginx
 NGINX_CONF="$STACK/config/nginx/open-webui.conf"
 if [ -f "$NGINX_CONF" ]; then
-  if grep -q "location /certmgr/" "$NGINX_CONF"; then
-    say "nginx-Route /certmgr/ existiert bereits"
+  if grep -q "location /certmgr/" "$NGINX_CONF" && grep -q "127.0.0.1:8445" "$NGINX_CONF"; then
+    say "nginx-Routen existieren bereits"
   else
-    say "nginx-Route /certmgr/ ergaenzen"
+    say "nginx-Routen ergaenzen"
     cp "$NGINX_CONF" "$NGINX_CONF.bak-certmgr"
     python3 - "$NGINX_CONF" <<'PYEOF'
-import re, sys
+import sys
+
 path = sys.argv[1]
 src = open(path, encoding="utf-8").read()
-block = '''
-    # Cert-Manager: Admin-Oberflaeche fuer Client-Zertifikate.
-    # Nur im LAN erreichbar - der Dienst selbst bindet auf Loopback.
-    location /certmgr/ {
-        proxy_pass http://127.0.0.1:8104/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-'''
-# In den ersten Server-Block (Port 8443) einfuegen, vor der letzten }
-# Klammer dieses Blocks.
-m = re.search(r'(server \{[^}]*?listen 8443 ssl;.*?)(    location = /vault \{)', src, re.S)
-if m:
-    src = src[:m.end(2)] + block + src[m.end(2):]
+snippet = open(
+    "/home/ewen/devs/certmgr/deploy/nginx-certmgr.conf", encoding="utf-8"
+).read()
+
+# Die beiden Teile aus dem Snippet ziehen.
+loc_marker = "    # Cert-Manager: Admin-Oberflaeche"
+srv_marker = "# ------------------------------------------------------- Cloudflare-Origin --"
+
+i = snippet.index(loc_marker)
+j = snippet.index(srv_marker)
+location_block = snippet[i:j].rstrip() + "\n"
+server_block = snippet[j:].rstrip() + "\n"
+
+changed = False
+
+# 1. Location in den 8443-Block (vor "location = /vault {")
+if "location /certmgr/" not in src:
+    anchor = "    location = /vault { return 301 /vault/; }\n"
+    if anchor in src:
+        src = src.replace(anchor, anchor + "\n" + location_block, 1)
+        changed = True
+        print("  Location /certmgr/ eingefuegt")
+    else:
+        print("  WARN: Anker 'location = /vault {' nicht gefunden")
+
+# 2. Server-Block ans Dateiende
+if "127.0.0.1:8445" not in src:
+    src = src.rstrip() + "\n\n" + server_block
+    changed = True
+    print("  Server-Block :8445 angehaengt")
+
+if changed:
     open(path, "w", encoding="utf-8").write(src)
-    print("  Location /certmgr/ eingefuegt")
-else:
-    print("  WARN: Anker nicht gefunden - bitte von Hand eintragen")
 PYEOF
+    # nginx-Config pruefen, bevor der Container neu geladen wird
+    if podman exec open-webui-proxy nginx -t >/dev/null 2>&1; then
+      say "  nginx-Konfiguration ist gueltig"
+      podman exec open-webui-proxy nginx -s reload 2>/dev/null || true
+    else
+      warn "  nginx-Konfiguration ist FEHLERHAFT - Backup liegt unter:"
+      warn "    $NGINX_CONF.bak-certmgr"
+      podman exec open-webui-proxy nginx -t 2>&1 | tail -3
+    fi
   fi
 fi
 
