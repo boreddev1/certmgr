@@ -277,12 +277,43 @@ Der öffentliche Onboarding-Port `:8103` beantwortet **nur**
 ## Tests
 
 ```bash
-python3 tests/test_e2e.py    # Lebenszyklus gegen eine Mock-API
-python3 tests/test_http.py   # beide Ports, Login, API, Onboarding
+python3 tests/test_e2e.py       # Lebenszyklus gegen eine Mock-API
+python3 tests/test_http.py      # beide Ports, Login, API, Onboarding
+python3 tests/test_security.py  # Regressionstests fuer die Security-Fixes
+python3 tests/test_findings.py  # prueft jeden Befund aus dem Security-Review
 ~/ai-stack/hermes/venv/bin/python tests/test_mcp.py   # MCP-Werkzeuge
 ```
 
 Der MCP-Test braucht das Hermes-venv, weil dort das `mcp`-Paket liegt.
+
+### Cloudflare-Regeln pruefen
+
+Die WAF-Regeln liegen im Cloudflare-Dashboard, nicht in diesem
+Repository. Faellt sie dort weg, ist die komplette Admin-API ueber das
+Internet erreichbar. Das Skript macht den Fehler sichtbar:
+
+```bash
+python3 scripts/check_waf_rules.py           # nur pruefen
+python3 scripts/check_waf_rules.py --portal  # auch /onboard/ pruefen
+```
+
+Erwartet: 403 fuer alles ausserhalb von `/onboard/`, 403 fuer
+`ki.boreddev1.cc` ohne Client-Zertifikat.
+
+---
+
+## Security-Review
+
+Ein Security-Review wurde von OpenHands (Agent-Canvas, Workspace
+`devs-certmgr`) durchgefuehrt. Der Bericht liegt in
+[`docs/security-review.md`](docs/security-review.md) und nennt 10
+Befunde nach Schweregrad.
+
+Alle Befunde sind behoben. `tests/test_findings.py` prueft das
+automatisch - statisch und, wo moeglich, funktional (parallele
+Downloads, gespoofte Header, Dateirechte, Traversal-Versuche). Damit
+kann ein Rueckfall nicht unbemerkt passieren.
+
 
 ---
 
